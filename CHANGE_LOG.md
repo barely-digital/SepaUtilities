@@ -1,6 +1,13 @@
 SepaUtilities - Change Log
 ===============
 
+# 2.0.2 - May 16, '25
+- Add sanitation for new address fields introduced in 2.0.0 (Fixes #9).
+- Added optional `$options` parameter to sanitize function.
+  This is needed to set the file version, so `pstladr` can be sanitized correctly.
+  This change is fully backwards compatible.
+- Introduced a new constant `TEXT_LENGTH_TINY`.
+
 # 2.0.1 - Feb 12, '25
 - Fix some php deprecation warnings (thanks @JurianArie)
 - Warnings will now fail the unit tests.

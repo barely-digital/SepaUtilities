@@ -136,6 +136,7 @@ class SepaUtilities
     /**
      * Valid maximal text length
      */
+    const TEXT_LENGTH_TINY       = 16;
     const TEXT_LENGTH_VERY_SHORT = 35;
     const TEXT_LENGTH_SHORT      = 70;
     const TEXT_LENGTH_LONG       = 140;
@@ -674,7 +675,7 @@ class SepaUtilities
      * @param mixed  $input
      * @param ?array $options See `checkBIC()`, `checkIBAN()` and `checkLocalInstrument()` for
      *                        details. In addition one can use the key `version`, which is relevant
-     *                        for validation 'mndtid'.
+     *                        for validation 'mndtid' and 'pstladr'.
      * @return false|mixed The checked input or false, if it is not valid
      */
     public static function check(string $field, mixed $input, ?array $options = null): mixed
@@ -703,7 +704,7 @@ class SepaUtilities
             case 'bldgnb':
             case 'pstbx':
             case 'pstcd':
-                return self::checkText($input, 16);
+                return self::checkText($input, self::TEXT_LENGTH_TINY);
             case 'initgptyid':
                 if($version === self::SEPA_PAIN_008_001_02_AUSTRIAN_003)
                     return false;   // not supported on this version
@@ -784,52 +785,18 @@ class SepaUtilities
             case 'ctry':
                 return self::checkCountryCode($input);
             case 'pstladr':
-                if(in_array($version, [self::SEPA_PAIN_001_001_09, self::SEPA_PAIN_008_001_08], true))
-                {
-                    if($input === null) return true;
-                    if(!is_array($input)) return false;
-
-                    $adrKeys = array_map(fn($k) => strtolower($k), array_keys($input));
-                    foreach(['ctry', 'twnnm'] as $reqKey)
-                    {
-                        if(!in_array($reqKey, $adrKeys, true)) return false;
-                    }
-
-                    foreach($input as $key => &$value)
-                    {
-                        if(!in_array(strtolower($key), ['ctry',
-                                                        'bldgnm',
-                                                        'twnnm',
-                                                        'twnlctnnm',
-                                                        'dstrctnm',
-                                                        'ctrysubdvsn',
-                                                        'bldgnb',
-                                                        'pstbx',
-                                                        'pstcd',
-                                                        'dept',
-                                                        'subdept',
-                                                        'strtnm',
-                                                        'flr',
-                                                        'room'], true))
-                            return false;
-
-                        $value = self::check($key, $value, $options);
-                    }
-                    return in_array(false, $input, true) ? false : $input;
-                } // if not => fall through to cdtrpstladr
             case 'cdtrpstladr':
             case 'dbtrpstladr':
-                if(is_array($input) && count($input) > 0 && count($input) <= 2)
-                {
-                    foreach($input as $key => &$value)
-                    {
-                        if(!in_array(strtolower($key), ['ctry', 'adrline'], true))
-                            return false;
+                $validStructure = self::checkArrayStructure($field, $input, $version);
+                if(!$validStructure)
+                    return false;
 
-                        $value = self::check($key, $value, $options);
-                    }
-                    return in_array(false, $input, true) ? false : $input;
-                } // if not => fall through
+                foreach($input as $key => &$value)
+                {
+                    $value = self::check($key, $value, $options);
+                }
+
+                return in_array(false, $input, true) ? false : $input;
             default:
                 return false;
         }
@@ -893,7 +860,7 @@ class SepaUtilities
         if($checkedInput !== false)
             return $checkedInput;
 
-        return self::sanitize($field, $input, $flags);
+        return self::sanitize($field, $input, $flags, $options);
     }
 
     /**
@@ -963,27 +930,51 @@ class SepaUtilities
     /**
      * Tries to sanitize the input so it fits in the field.
      *
-     * @param string $field Valid fields are: 'ultmtcdtr', 'ultmtdbtr',
-     *                      'orgnlcdtrschmeid_nm', 'initgpty', 'cdtr', 'dbtr', 'rmtinf', 'adrline'
-     *                      'orgid_sm', 'orgid_id'
-     * @param mixed  $input
-     * @param int    $flags Flags used in replaceSpecialChars()
+     * @param string     $field Valid fields are: 'ultmtcdtr', 'ultmtdbtr',
+     *                          'orgnlcdtrschmeid_nm', 'initgpty', 'cdtr', 'dbtr', 'rmtinf', 'adrline'
+     *                          'orgid_sm', 'orgid_id'
+     * @param mixed      $input
+     * @param int        $flags Flags used in replaceSpecialChars()
+     * @param array|null $options See `check()` for details.
      * @return mixed|false  The sanitized input or false if the input is not sanitizable or
      *                      invalid also after sanitizing.
      */
-    public static function sanitize(string $field, mixed $input, int $flags = 0): mixed
+    public static function sanitize(string $field, mixed $input, int $flags = 0, ?array $options = null): mixed
     {
         $field = strtolower($field);
+
         switch($field)          // fall-through's are on purpose
         {
+            case 'pstladr':
+            case 'cdtrpstladr':
+            case 'dbtrpstladr':
+                $validStructure = self::checkArrayStructure($field, $input, $options['version'] ?? null);
+                if(!$validStructure)
+                    return false;
+
+                foreach($input as $key => &$value)
+                {
+                    $value = self::checkAndSanitize($key, $value, $flags, $options);
+                }
+
+                return in_array(false, $input, true) ? false : $input;
+            case 'bldgnb':
+            case 'pstbx':
+            case 'pstcd':
+                return self::sanitizeText(self::TEXT_LENGTH_TINY, $input, true, $flags);
             case 'orgid_sm':
             case 'orgid_id':
+            case 'bldgnm':
+            case 'twnnm':
+            case 'twnlctnnm':
+            case 'dstrctnm':
+            case 'ctrysubdvsn':
                 return self::sanitizeText(self::TEXT_LENGTH_VERY_SHORT, $input, true, $flags);
             case 'adrline':
                 if(is_array($input))
                 {
                     foreach($input as &$value)
-                        $value = self::sanitize($field, $value, $flags);
+                        $value = self::sanitize($field, $value, $flags, $options);
 
                     return in_array(false, $input, true) ? false : $input;
                 }
@@ -992,6 +983,11 @@ class SepaUtilities
             case 'ultmtcdtr':
             case 'ultmtdbtr':
             case 'ultmtdebtr':  // deprecated, just here for backwards compatibility
+            case 'dept':
+            case 'subdept':
+            case 'strtnm':
+            case 'flr':
+            case 'room':
                 return self::sanitizeText(self::TEXT_LENGTH_SHORT, $input, true, $flags);
             case 'orgnlcdtrschmeid_nm':
             case 'initgpty':
@@ -1449,5 +1445,60 @@ class SepaUtilities
             return self::SEPA_TRANSACTION_TYPE_DD;
 
         return false;
+    }
+
+    private static function checkArrayStructure(string $arrayKey, mixed $data, ?int $version): bool
+    {
+        switch($arrayKey)
+        {
+            case 'pstladr':
+                if(in_array($version, [self::SEPA_PAIN_001_001_09, self::SEPA_PAIN_008_001_08], true))
+                {
+                    if($data === null) return true;
+                    if(!is_array($data)) return false;
+
+                    $adrKeys = array_map(fn($k) => strtolower($k), array_keys($data));
+                    foreach(['ctry', 'twnnm'] as $reqKey)
+                    {
+                        if(!in_array($reqKey, $adrKeys, true)) return false;
+                    }
+
+                    foreach($adrKeys as $key)
+                    {
+                        if(!in_array($key, ['ctry',
+                                            'bldgnm',
+                                            'twnnm',
+                                            'twnlctnnm',
+                                            'dstrctnm',
+                                            'ctrysubdvsn',
+                                            'bldgnb',
+                                            'pstbx',
+                                            'pstcd',
+                                            'dept',
+                                            'subdept',
+                                            'strtnm',
+                                            'flr',
+                                            'room'], true))
+                            return false;
+                    }
+                    return true;
+                } // if not => fall through to cdtrpstladr
+            case 'cdtrpstladr':
+            case 'dbtrpstladr':
+                if(!is_array($data)) return false;
+
+                if(count($data) > 0 && count($data) <= 2)
+                {
+                    $adrKeys = array_map(fn($k) => strtolower($k), array_keys($data));
+                    foreach($adrKeys as $key)
+                    {
+                        if(!in_array($key, ['ctry', 'adrline'], true))
+                            return false;
+                    }
+                    return true;
+                } // if not => fall through
+            default:
+                return false;
+        }
     }
 }

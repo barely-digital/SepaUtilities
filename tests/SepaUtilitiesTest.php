@@ -526,6 +526,9 @@ class SepaUtilitiesTest extends PHPUnit\Framework\TestCase
         self::assertSame('tast', SepaUtilities::sanitize('adrLine', 'täst'));
         self::assertSame(['tast'], SepaUtilities::sanitize('adrLine', ['täst']));
         self::assertSame(['tast','tast'], SepaUtilities::sanitize('adrLine', ['täst','täst']));
+        self::assertSame(['tast','tast'], SepaUtilities::checkAndSanitize('adrLine', ['täst','täst']));
+        $data = ['adrLine' => ['täst','täst']];
+        self::assertTrue(SepaUtilities::checkAndSanitizeAll($data));
 
         // invalid
         self::assertFalse(SepaUtilities::check('adrLine', []));
@@ -542,12 +545,68 @@ class SepaUtilitiesTest extends PHPUnit\Framework\TestCase
             self::assertSame(['adrline' => ['test']], SepaUtilities::check($key, ['adrline' => ['test']]));
             self::assertSame(['ctry' => 'DE', 'adrLine' => ['test']], SepaUtilities::check($key, ['ctry' => 'dE', 'adrLine' => ['test']]));
 
+            self::assertFalse(SepaUtilities::check($key, ['adrline' => '12345 Örtchen']));
+            self::assertSame(['adrLine' => '12345 Ortchen'], SepaUtilities::sanitize($key, ['adrLine' => '12345 Örtchen']), 'Key: ' . $key);
+            self::assertSame(['adrLine' => '12345 Oertchen'], SepaUtilities::sanitize($key, ['adrLine' => '12345 Örtchen'], SepaUtilities::FLAG_ALT_REPLACEMENT_GERMAN), 'Key: ' . $key);
+            self::assertSame(['ctry' => 'DE', 'adrLine' => ['Teststrase', '12345 Ortchen']], SepaUtilities::sanitize($key, ['ctry' => 'dE', 'adrLine' => ['Teststraße','12345 Örtchen']]));
+            self::assertSame(['ctry' => 'DE', 'adrLine' => ['Teststrase', '12345 Ortchen']], SepaUtilities::checkAndSanitize($key, ['ctry' => 'dE', 'adrLine' => ['Teststraße','12345 Örtchen']]));
+
             // invalid
             self::assertFalse(SepaUtilities::check($key, []));
             self::assertFalse(SepaUtilities::check($key, ['test' => 1]));
             self::assertFalse(SepaUtilities::check($key, ['ctry'          => 'dE',
                                                           'adrline'       => ['test'],
                                                           'somethingelse' => 1]));
+        }
+
+        // new pstlAdr keys
+        $dataFull     = [
+            'ctry'        => 'DE',
+            'bldgnm'      => 'Buildingname',
+            'twnnm'       => 'Düsseldorf',
+            'twnlctnnm'   => 'TownDistrict',
+            'dstrctnm'    => 'Districtname',
+            'ctrysubdvsn' => 'State',
+            'bldgnb'      => '12a',
+            'pstbx'       => 'Postbox',
+            'pstcd'       => '40210',
+            'dept'        => 'Department',
+            'subdept'     => 'Subdepartment',
+            'strtnm'      => 'Hüttenstraße',
+            'flr'         => '3',
+            'room'        => 'R 314'];
+        $dataExpected = [
+            'ctry'        => 'DE',
+            'bldgnm'      => 'Buildingname',
+            'twnnm'       => 'Dusseldorf',
+            'twnlctnnm'   => 'TownDistrict',
+            'dstrctnm'    => 'Districtname',
+            'ctrysubdvsn' => 'State',
+            'bldgnb'      => '12a',
+            'pstbx'       => 'Postbox',
+            'pstcd'       => '40210',
+            'dept'        => 'Department',
+            'subdept'     => 'Subdepartment',
+            'strtnm'      => 'Huttenstrase',
+            'flr'         => '3',
+            'room'        => 'R 314',
+        ];
+
+        foreach([SepaUtilities::SEPA_PAIN_001_001_09, SepaUtilities::SEPA_PAIN_008_001_08] as $version)
+        {
+            $opt = ['version' => $version];
+            $dataSome = $dataExpected;
+            self::assertNotFalse(SepaUtilities::check('pstlAdr', $dataSome, $opt));
+            unset($dataSome['twnnm']);  // remove necessary data
+            self::assertFalse(SepaUtilities::check('pstlAdr', $dataSome, $opt));
+            $dataSome = $dataExpected;
+            self::assertNotFalse(SepaUtilities::check('pstlAdr', $dataSome, $opt));
+            $dataSome['random'] = 'some data'; // add invalid field
+            self::assertFalse(SepaUtilities::check('pstlAdr', $dataSome, $opt));
+
+            self::assertSame($dataExpected, SepaUtilities::check('pstlAdr', $dataExpected, $opt));
+            self::assertSame($dataExpected, SepaUtilities::sanitize('pstlAdr', $dataFull, 0, $opt));
+            self::assertSame($dataExpected, SepaUtilities::checkAndSanitize('pstlAdr', $dataFull, 0, $opt));
         }
     }
 }
