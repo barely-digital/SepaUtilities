@@ -1259,7 +1259,7 @@ class SepaUtilities
 
     private static function checkCharset(string $str): bool
     {
-        return (boolean) preg_match('#^[a-zA-Z0-9/\-?:().,\'+ ]*$#', $str);
+        return (bool) preg_match('#^[a-zA-Z0-9/\-?:().,\'+ ]*$#', $str);
     }
 
     private
